@@ -1,31 +1,44 @@
-name: Deploy to host server
+name: Create and publish a Docker image
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - master
-    paths:
-      - 'src/**'
-      - 'public/**'
-      - 'package*.json'
-      - '.env'
-      - 'jsconfig.json'
+      - 'main'
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deploy:
+  amd64:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v2
+      - uses: actions/checkout@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v2
         with:
-          node-version: '20.x'
-      - name: 🔧 Create build
-        run: |
-          npm install
-          npm run build
-      - name: 🚀 Deploy
-        run: |
-          eval $(ssh-agent -s)
-          ssh-add - <<< "${{ secrets.SSH_PRIVATE_KEY }}"
-          rsync -r --delete -e "ssh -p 23432 -o StrictHostKeyChecking=no" ./build/ ${{ vars.HOST_USERNAME }}@${{ vars.HOST_IP }}:${{ vars.HOST_TARGET_DIR }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      - name: Build image and push to registry
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
